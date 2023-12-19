@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows.Forms;
 using System.IO;
+using System.Runtime.InteropServices;
 
 namespace AllexCloudRunnerControls
 {
@@ -93,8 +94,22 @@ namespace AllexCloudRunnerControls
         }
         #endregion
     }
-    public partial class ProcessLogger : UserControl
+    public partial class ProcessRunner : UserControl
     {
+        #region WinAPI stuff
+        internal const int CTRL_C_EVENT = 0;
+        [DllImport("kernel32.dll")]
+        internal static extern bool GenerateConsoleCtrlEvent(uint dwCtrlEvent, uint dwProcessGroupId);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        internal static extern bool AttachConsole(uint dwProcessId);
+        [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
+        internal static extern bool FreeConsole();
+        [DllImport("kernel32.dll")]
+        static extern bool SetConsoleCtrlHandler(ConsoleCtrlDelegate? HandlerRoutine, bool Add);
+        // Delegate type to be used as the Handler Routine for SCCH
+        delegate Boolean ConsoleCtrlDelegate(uint CtrlType);
+        #endregion
+
         #region Fields
         private bool? m_LocalNode=null;
         private string m_JSFileName="";
@@ -102,14 +117,18 @@ namespace AllexCloudRunnerControls
         private Process? m_Process=null;
         private string m_Buffer = "";
         private bool m_ProcessClosed = true;
+        private Thread? m_StoppingThread;
+        private bool m_TimeToStop = false;
         delegate void Callback();
         #endregion
+
         #region Ctor
-        public ProcessLogger()
+        public ProcessRunner()
         {
             InitializeComponent();
         }
         #endregion
+
         #region Properties
         [Browsable(true), EditorBrowsable(EditorBrowsableState.Always), Category("Process"), DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public bool? LocalNode { 
@@ -148,14 +167,20 @@ namespace AllexCloudRunnerControls
         }
         #endregion
         #region Public Methods
-        public void Stop ()
+        public void Stop (bool forever = false)
         {
-            if (m_Process!=null && !m_Process.HasExited)
+            m_TimeToStop = true;
+            if (m_StoppingThread != null)
             {
-                m_Process.Kill();
+                return;
             }
+            stopButt.Enabled = m_Process == null || m_Process.HasExited;
+            startButt.Enabled = m_Process == null || m_Process.HasExited;
+            m_StoppingThread = new Thread(StoppingThreadProc);
+            m_StoppingThread.Start(this);
         }
         #endregion
+
         #region Protected Methods
         protected void Start()
         {
@@ -163,13 +188,14 @@ namespace AllexCloudRunnerControls
             {
                 return;
             }
-            Stop();
+            StopSync();
             if (LocalNode == null)
             {
                 return;
             }
             if (!String.IsNullOrWhiteSpace(m_JSFileName))
             {
+                System.Diagnostics.Debug.WriteLine($"Starting {m_JSFileName}");
                 try
                 {
                     m_Process = new Process();
@@ -200,12 +226,16 @@ namespace AllexCloudRunnerControls
                 }
             }
         }
-
-        protected void OnProcessExited(object? sender, System.EventArgs args)
+        protected void StopSync()
         {
-            doProcessExited();
+            if (m_StoppingThread == null)
+            {
+                Stop();
+            }
+            m_StoppingThread?.Join();
         }
         #endregion
+
         #region Private Methods
         private void doProcessExited ()
         {
@@ -215,8 +245,10 @@ namespace AllexCloudRunnerControls
             }
             else
             {
+                stopButt.Enabled = !m_TimeToStop;
+                startButt.Enabled = !m_TimeToStop;
                 stopButt.Visible = false;
-                startButt.Visible = true;
+                startButt.Visible = !m_TimeToStop;
                 m_ProcessClosed = true;
             }
         }
@@ -280,15 +312,57 @@ namespace AllexCloudRunnerControls
         {
             Start();
         }
-
         private void stopButt_Click(object sender, EventArgs e)
         {
             Stop();
         }
-
         private void clearButt_Click(object sender, EventArgs e)
         {
             logBox.Clear();
+        }
+        protected void OnProcessExited(object? sender, System.EventArgs args)
+        {
+            doProcessExited();
+        }
+        #endregion
+        #region Thread Proc
+        private static object _StoppingLock = new object();
+        private void StoppingThreadProc (object? runnerobj)
+        {
+            ProcessRunner myrunner;
+            Process myprocess;
+            if (runnerobj == null || runnerobj is not ProcessRunner)
+            {
+                return;
+            }
+            myrunner = (ProcessRunner)runnerobj;
+            if (myrunner.m_Process == null)
+            {
+                myrunner.m_StoppingThread = null;
+                return;
+            }
+            myprocess = myrunner.m_Process;
+            if (myprocess != null && !myprocess.HasExited)
+            {
+                lock (_StoppingLock)
+                {
+                    if (AttachConsole((uint)myprocess.Id))
+                    {
+                        SetConsoleCtrlHandler(null, true);
+                        try
+                        {
+                            if (!GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0))
+                                return;// false;
+                            Thread.Sleep(100);
+                            SetConsoleCtrlHandler(null, false);
+                            FreeConsole();
+                            myprocess.WaitForExit();
+                        }
+                        catch { }
+                    }
+                    myrunner.m_StoppingThread = null;
+                }
+            }
         }
         #endregion
     }
