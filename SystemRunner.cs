@@ -52,6 +52,8 @@ namespace AllexCloudRunnerControls
             #region Fields
             Form m_Form;
             SystemRunner m_Runner;
+            string m_OriginalFormText="";
+            int m_PulseCount = 0;
             private System.Windows.Forms.Timer? m_ClosingTimer = null;
             #endregion
 
@@ -60,6 +62,7 @@ namespace AllexCloudRunnerControls
             {
                 m_Form = form;
                 m_Runner = runner;
+                m_OriginalFormText = m_Form.Text;
                 m_Form.FormClosing += OnFormClosing;
             }
 
@@ -70,6 +73,11 @@ namespace AllexCloudRunnerControls
                     m_Form.FormClosing -= OnFormClosing;
                     return;
                 }
+                if (m_PulseCount % 10 == 0)
+                {
+                    m_Form.Text = "Closing " + m_OriginalFormText + PulseDots();
+                }
+                m_PulseCount++;
                 e.Cancel = true;
                 m_Runner.Stop(true);
                 if (m_ClosingTimer == null)
@@ -83,17 +91,24 @@ namespace AllexCloudRunnerControls
 
             private void OnTimer(object? sender, EventArgs e)
             {
-                if (m_Runner.CanClose)
+                if (m_ClosingTimer != null)
                 {
-                    if (m_ClosingTimer != null)
-                    {
-                        m_ClosingTimer.Tick -= OnTimer;
-                        m_ClosingTimer.Stop();
-                        m_ClosingTimer.Dispose();
-                    }
-                    m_ClosingTimer = null;
-                    m_Form.Close();
+                    m_ClosingTimer.Tick -= OnTimer;
+                    m_ClosingTimer.Stop();
+                    m_ClosingTimer.Dispose();
                 }
+                m_ClosingTimer = null;
+                m_Form.Close();
+            }
+
+            private string PulseDots ()
+            {
+                string ret = " ";
+                for (int i = 0; i< m_PulseCount%40; i+=10)
+                {
+                    ret += ".";
+                }
+                return ret;
             }
             #endregion
         }

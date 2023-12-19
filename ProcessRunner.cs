@@ -166,6 +166,7 @@ namespace AllexCloudRunnerControls
             get { return m_ProcessClosed; }
         }
         #endregion
+
         #region Public Methods
         public void Stop (bool forever = false)
         {
@@ -307,6 +308,7 @@ namespace AllexCloudRunnerControls
             logBox.AppendText(b);
         }
         #endregion
+
         #region Event Handlers
         private void startButt_Click(object sender, EventArgs e)
         {
@@ -325,6 +327,7 @@ namespace AllexCloudRunnerControls
             doProcessExited();
         }
         #endregion
+
         #region Thread Proc
         private static object _StoppingLock = new object();
         private void StoppingThreadProc (object? runnerobj)
