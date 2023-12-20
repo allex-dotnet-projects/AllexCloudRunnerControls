@@ -7,28 +7,40 @@ namespace AllexCloudRunnerControls
     public partial class SystemRunner : UserControl
     {
         #region Static Methods
-        private static bool StartProcess (string path, bool localnode)
+        private static bool StartProcess (string path, bool localnode, string? pathtoallexsystem=null)
         {
             if (!File.Exists (path))
+            {
+                return false;
+            }
+            if (pathtoallexsystem == null)
             {
                 return false;
             }
             Process proc = new Process();
             if (localnode)
             {
-                proc.StartInfo.EnvironmentVariables["Path"] = "nodejs;" + proc.StartInfo.EnvironmentVariables["Path"];
+                proc.StartInfo.EnvironmentVariables["Path"] = ";" + proc.StartInfo.EnvironmentVariables["Path"];
             }
+            proc.StartInfo.WorkingDirectory = pathtoallexsystem;
             proc.StartInfo.UseShellExecute = false;
             proc.StartInfo.RedirectStandardOutput = false;
             proc.StartInfo.RedirectStandardError = false;
-            proc.StartInfo.FileName = Path.Combine(localnode ? "nodejs" : "", "node.exe");
+            if (localnode)
+            {
+                proc.StartInfo.FileName = Path.Combine(pathtoallexsystem, "nodejs", "node.exe");
+            }
+            else
+            {
+                proc.StartInfo.FileName = "node.exe";
+            }
             proc.StartInfo.Arguments = path;
             proc.StartInfo.CreateNoWindow = true;
             proc.Start();
             proc.EnableRaisingEvents = false;
             return true;
         }
-        private static void StartPortOffice(bool localnode)
+        private static void StartPortOffice(bool localnode, string? pathtolocalsystem)
         {
             if (!localnode)
             {
@@ -37,12 +49,16 @@ namespace AllexCloudRunnerControls
                 {
                     return;
                 }
-                if (StartProcess(System.IO.Path.Combine(appdatapath, "npm", "node_modules", "allex_portofficeserverruntimelib", "portoffice.js"), false)) return;
-                if (StartProcess(System.IO.Path.Combine(appdatapath, "npm", "node_modules", "allex", "node_modules", "allex_portofficeserverruntimelib", "portoffice.js"), false)) return;
+                if (StartProcess(System.IO.Path.Combine(appdatapath, "npm", "node_modules", "allex_portofficeserverruntimelib", "portoffice.js"), false, pathtolocalsystem)) return;
+                if (StartProcess(System.IO.Path.Combine(appdatapath, "npm", "node_modules", "allex", "node_modules", "allex_portofficeserverruntimelib", "portoffice.js"), false, pathtolocalsystem)) return;
                 return;
             }
-            if (StartProcess(System.IO.Path.Combine("node_modules", "allex_portofficeserverruntimelib", "portoffice.js"), false)) return;
-            if (StartProcess(System.IO.Path.Combine("node_modules", "allex", "node_modules", "allex_portofficeserverruntimelib", "portoffice.js"), false)) return;
+            if (pathtolocalsystem == null)
+            {
+                return;
+            }
+            if (StartProcess(System.IO.Path.Combine("node_modules", "allex_portofficeserverruntimelib", "portoffice.js"), true, pathtolocalsystem)) return;
+            if (StartProcess(System.IO.Path.Combine("node_modules", "allex", "node_modules", "allex_portofficeserverruntimelib", "portoffice.js"), true, pathtolocalsystem)) return;
         }
         #endregion
 
@@ -65,7 +81,9 @@ namespace AllexCloudRunnerControls
                 m_OriginalFormText = m_Form.Text;
                 m_Form.FormClosing += OnFormClosing;
             }
+            #endregion
 
+            #region Private Methods
             private void OnFormClosing(object? sender, FormClosingEventArgs e)
             {
                 if (m_Runner.CanClose)
@@ -88,7 +106,6 @@ namespace AllexCloudRunnerControls
                     m_ClosingTimer.Start();
                 }
             }
-
             private void OnTimer(object? sender, EventArgs e)
             {
                 if (m_ClosingTimer != null)
@@ -100,13 +117,12 @@ namespace AllexCloudRunnerControls
                 m_ClosingTimer = null;
                 m_Form.Close();
             }
-
             private string PulseDots ()
             {
-                string ret = " ";
+                string ret = "";
                 for (int i = 0; i< m_PulseCount%40; i+=10)
                 {
-                    ret += ".";
+                    ret += " .";
                 }
                 return ret;
             }
@@ -137,6 +153,17 @@ namespace AllexCloudRunnerControls
             }
         }
         [Browsable(true), EditorBrowsable(EditorBrowsableState.Always), Category("Process"), DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public string? PathToAllexSystem
+        {
+            get { return LMRunner.PathToAllexSystem; }
+            set
+            {
+                LMRunner.PathToAllexSystem = value;
+                AMRunner.PathToAllexSystem = value;
+                DoStart();
+            }
+        }
+        [Browsable(true), EditorBrowsable(EditorBrowsableState.Always), Category("Process"), DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
         public bool? LocalNode
         {
             get { return LMRunner.LocalNode; }
@@ -144,27 +171,7 @@ namespace AllexCloudRunnerControls
             {
                 LMRunner.LocalNode = value;
                 AMRunner.LocalNode = value;
-                if (value==null)
-                {
-                    return;
-                }
-                StartPortOffice(value == true);
-                var pidfilename = "allexmaster.pid";
-                if (File.Exists(pidfilename))
-                    File.Delete(pidfilename);
-                if (value == false)
-                {
-                    string? appdatapath = System.Environment.GetEnvironmentVariable("APPDATA");
-                    if (String.IsNullOrWhiteSpace(appdatapath))
-                    {
-                        return;
-                    }
-                    LMRunner.JSFileName = System.IO.Path.Combine(appdatapath, "npm", "node_modules", "allex", "lanmanager.js");
-                    AMRunner.JSFileName = System.IO.Path.Combine(appdatapath, "npm", "node_modules", "allex", "master.js");
-                    return;
-                }
-                LMRunner.JSFileName = System.IO.Path.Combine("node_modules", "allex", "lanmanager.js");
-                AMRunner.JSFileName = System.IO.Path.Combine("node_modules", "allex", "master.js");
+                DoStart();
             }
         }
         [Browsable(true), EditorBrowsable(EditorBrowsableState.Always), Category("Design"), DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
@@ -192,6 +199,37 @@ namespace AllexCloudRunnerControls
         public void AttachForClose (Form f)
         {
             _ = new FormCloser(f, this);
+        }
+        #endregion
+
+        #region Private Methods
+        private void DoStart ()
+        {
+            if (LocalNode == null)
+            {
+                return;
+            }
+            StartPortOffice(LocalNode == true, PathToAllexSystem);
+            var pidfilename = "allexmaster.pid";
+            if (File.Exists(pidfilename))
+                File.Delete(pidfilename);
+            if (LocalNode == false)
+            {
+                string? appdatapath = System.Environment.GetEnvironmentVariable("APPDATA");
+                if (String.IsNullOrWhiteSpace(appdatapath))
+                {
+                    return;
+                }
+                LMRunner.JSFileName = System.IO.Path.Combine(appdatapath, "npm", "node_modules", "allex", "lanmanager.js");
+                AMRunner.JSFileName = System.IO.Path.Combine(appdatapath, "npm", "node_modules", "allex", "master.js");
+                return;
+            }
+            if (PathToAllexSystem == null)
+            {
+                return;
+            }
+            LMRunner.JSFileName = System.IO.Path.Combine("node_modules", "allex", "lanmanager.js");
+            AMRunner.JSFileName = System.IO.Path.Combine("node_modules", "allex", "master.js");
         }
         #endregion
     }

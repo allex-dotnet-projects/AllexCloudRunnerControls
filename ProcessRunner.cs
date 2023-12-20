@@ -112,6 +112,7 @@ namespace AllexCloudRunnerControls
 
         #region Fields
         private bool? m_LocalNode=null;
+        private string? m_PathToAllexSystem=null;
         private string m_JSFileName="";
         private FileLogger m_FileLogger = new FileLogger();
         private Process? m_Process=null;
@@ -135,6 +136,16 @@ namespace AllexCloudRunnerControls
             get { return m_LocalNode; } 
             set { 
                 m_LocalNode = value;
+                Start();
+            }
+        }
+        [Browsable(true), EditorBrowsable(EditorBrowsableState.Always), Category("Process"), DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public string? PathToAllexSystem
+        {
+            get { return m_PathToAllexSystem; }
+            set
+            {
+                m_PathToAllexSystem = value;
                 Start();
             }
         }
@@ -194,6 +205,10 @@ namespace AllexCloudRunnerControls
             {
                 return;
             }
+            if (PathToAllexSystem == null)
+            {
+                return;
+            }
             if (!String.IsNullOrWhiteSpace(m_JSFileName))
             {
                 System.Diagnostics.Debug.WriteLine($"Starting {m_JSFileName}");
@@ -203,11 +218,16 @@ namespace AllexCloudRunnerControls
                     if (LocalNode.HasValue && LocalNode.Value)
                     {
                         m_Process.StartInfo.EnvironmentVariables["Path"] = "nodejs;" + m_Process.StartInfo.EnvironmentVariables["Path"];
+                        m_Process.StartInfo.FileName = Path.Combine(PathToAllexSystem, "nodejs", "node.exe");
+                    }
+                    else
+                    {
+                        m_Process.StartInfo.FileName = "node.exe";
                     }
                     m_Process.StartInfo.UseShellExecute = false;
+                    m_Process.StartInfo.WorkingDirectory = PathToAllexSystem;
                     m_Process.StartInfo.RedirectStandardOutput = true;
                     m_Process.StartInfo.RedirectStandardError = true;
-                    m_Process.StartInfo.FileName = Path.Combine(LocalNode.HasValue && LocalNode.Value ? "nodejs" : "", "node.exe");
                     m_Process.StartInfo.Arguments = m_JSFileName;
                     m_Process.StartInfo.CreateNoWindow = true;
                     stopButt.Visible = true;
@@ -284,6 +304,12 @@ namespace AllexCloudRunnerControls
                     return;
                 if (logBox.IsDisposed)
                     return;
+                try
+                {
+                    logBox.Invoke(dumpBuffer);
+                }
+                catch { }
+                /*
                 if (logBox.InvokeRequired)
                 {
                     if (bufferWasEmpty)
@@ -299,6 +325,7 @@ namespace AllexCloudRunnerControls
                 {
                     dumpBuffer();
                 }
+                */
             }
         }
         private void dumpBuffer()
