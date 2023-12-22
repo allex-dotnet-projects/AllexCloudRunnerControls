@@ -181,7 +181,7 @@ namespace AllexCloudRunnerControls
         #region Public Methods
         public void Stop (bool forever = false)
         {
-            m_TimeToStop = true;
+            m_TimeToStop = m_TimeToStop||forever;
             if (m_StoppingThread != null)
             {
                 return;
