@@ -120,6 +120,7 @@ namespace AllexCloudRunnerControls
         private bool m_ProcessClosed = true;
         private Thread? m_StoppingThread;
         private bool m_TimeToStop = false;
+        private AutoResetEvent m_ProcessStopped = new AutoResetEvent(false);
         delegate void Callback();
         #endregion
 
@@ -351,6 +352,7 @@ namespace AllexCloudRunnerControls
         }
         protected void OnProcessExited(object? sender, System.EventArgs args)
         {
+            m_ProcessStopped.Set();
             doProcessExited();
         }
         #endregion
@@ -372,9 +374,9 @@ namespace AllexCloudRunnerControls
                 return;
             }
             myprocess = myrunner.m_Process;
-            if (myprocess != null && !myprocess.HasExited)
+            lock (_StoppingLock)
             {
-                lock (_StoppingLock)
+                if (myprocess != null && !myprocess.HasExited)
                 {
                     if (AttachConsole((uint)myprocess.Id))
                     {
@@ -383,15 +385,14 @@ namespace AllexCloudRunnerControls
                         {
                             if (!GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0))
                                 return;// false;
-                            Thread.Sleep(100);
+                            myrunner.m_ProcessStopped.WaitOne();
                             SetConsoleCtrlHandler(null, false);
                             FreeConsole();
-                            myprocess.WaitForExit();
                         }
                         catch { }
                     }
-                    myrunner.m_StoppingThread = null;
                 }
+                myrunner.m_StoppingThread = null;
             }
         }
         #endregion
