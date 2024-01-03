@@ -35,6 +35,9 @@ namespace AllexCloudRunnerControls
             startButt = new System.Windows.Forms.Button();
             stopButt = new System.Windows.Forms.Button();
             clearButt = new System.Windows.Forms.Button();
+            startToolTip = new ToolTip();
+            stopToolTip = new ToolTip();
+            clearToolTip = new ToolTip();
             panel1.SuspendLayout();
             SuspendLayout();
             // 
@@ -102,6 +105,18 @@ namespace AllexCloudRunnerControls
             //clearButt.Text = "Clear";
             clearButt.UseVisualStyleBackColor = true;
             clearButt.Click += new System.EventHandler(this.clearButt_Click);
+            //
+            // startToolTip
+            //
+            startToolTip.SetToolTip(startButt, "Start");
+            //
+            // stopToolTip
+            //
+            stopToolTip.SetToolTip(stopButt, "Stop");
+            //
+            // clearToolTip
+            //
+            clearToolTip.SetToolTip(clearButt, "Clear Log Display");
             // 
             // ProcessLogger
             // 
@@ -123,5 +138,8 @@ namespace AllexCloudRunnerControls
         private System.Windows.Forms.Button startButt;
         private System.Windows.Forms.TextBox logBox;
         private System.Windows.Forms.Button clearButt;
+        private System.Windows.Forms.ToolTip startToolTip;
+        private System.Windows.Forms.ToolTip stopToolTip;
+        private System.Windows.Forms.ToolTip clearToolTip;
     }
 }
