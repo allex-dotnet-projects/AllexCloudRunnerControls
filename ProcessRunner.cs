@@ -35,7 +35,7 @@ namespace AllexCloudRunnerControls
         }
         private string LogFilePath
         {
-            get { return m_LogDirRootName + "\\" + System.IO.Path.GetFileNameWithoutExtension(m_JSFileName) + DateTime.Today.ToString("_MM_dd_yyyy") + ".txt"; }
+            get { return m_LogDirRootName + "\\" + System.IO.Path.GetFileNameWithoutExtension(m_JSFileName) + DateTime.Today.ToString("_yyyy_MM_dd") + ".txt"; }
         }
         private bool CannotLog
         {
