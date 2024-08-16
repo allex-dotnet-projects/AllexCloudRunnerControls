@@ -69,6 +69,7 @@ namespace AllexCloudRunnerControls
             startButt.Location = new System.Drawing.Point(4, 0);
             startButt.Name = "startButt";
             startButt.BackgroundImage = Resources.Run;
+            startButt.BackgroundImageLayout = ImageLayout.Stretch;
             startButt.Size = new System.Drawing.Size(14, 14);
             startButt.Padding = new Padding(0);
             startButt.FlatStyle = FlatStyle.Flat;
@@ -83,6 +84,7 @@ namespace AllexCloudRunnerControls
             stopButt.Location = new System.Drawing.Point(4, 0);
             stopButt.Name = "stopButt";
             stopButt.BackgroundImage = Resources.Stop;
+            stopButt.BackgroundImageLayout = ImageLayout.Stretch;
             stopButt.Size = new System.Drawing.Size(14, 14);
             stopButt.Padding = new Padding(0);
             stopButt.FlatStyle = FlatStyle.Flat;
@@ -98,6 +100,7 @@ namespace AllexCloudRunnerControls
             clearButt.Location = new System.Drawing.Point(550, 2);
             clearButt.Name = "clearButt";
             clearButt.BackgroundImage = Resources.Clear;
+            clearButt.BackgroundImageLayout = ImageLayout.Stretch;
             clearButt.Size = new System.Drawing.Size(12, 12);
             clearButt.FlatStyle = FlatStyle.Flat;
             clearButt.FlatAppearance.BorderSize = 0;
