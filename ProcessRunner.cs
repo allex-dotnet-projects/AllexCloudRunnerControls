@@ -4,15 +4,36 @@ using System.Diagnostics;
 using System.Windows.Forms;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace AllexCloudRunnerControls
 {
-    class FileLogger
+    class FileLogger : IDisposable
     {
+        #region Constants
+        // How often the background thread drains the in-memory buffer to disk.
+        private const int FlushIntervalMs = 250;
+        #endregion
+
         #region Fields
         private string m_LogDirRootName="";
         private string m_JSFileName="";
-        private string m_Buffer="";
+        private readonly StringBuilder m_Buffer = new StringBuilder();
+        private readonly object m_Lock = new object();      // guards m_Buffer (touched by reader thread)
+        private readonly object m_WriteLock = new object(); // serializes file writes (timer callbacks only)
+        private StreamWriter? m_Writer;
+        private string m_OpenPath = "";
+        private readonly System.Threading.Timer m_FlushTimer;
+        #endregion
+
+        #region Ctor
+        public FileLogger()
+        {
+            // A single reusable timer drains the buffer on a background thread.
+            // (The previous implementation spawned a brand new repeating Timer on every
+            //  failed write and never disposed it, leaking timers under file contention.)
+            m_FlushTimer = new System.Threading.Timer(OnTimer, null, FlushIntervalMs, FlushIntervalMs);
+        }
         #endregion
 
         #region Properties
@@ -45,52 +66,85 @@ namespace AllexCloudRunnerControls
         #endregion
 
         #region Public Methods
+        // Called on the process stdout/stderr reader thread. Must be cheap and must never
+        // block: it only appends to an in-memory buffer. The actual file write happens on
+        // the flush timer, so a slow disk can never apply backpressure to the node process.
         public void Log(string text)
         {
-            m_Buffer += text;
+            if (string.IsNullOrEmpty(text))
+            {
+                return;
+            }
+            lock (m_Lock)
+            {
+                m_Buffer.Append(text);
+            }
+        }
+
+        public void Dispose()
+        {
+            m_FlushTimer.Dispose();
             DoLog();
+            lock (m_WriteLock)
+            {
+                m_Writer?.Dispose();
+                m_Writer = null;
+            }
         }
         #endregion
 
         #region Private Methods
+        private void OnTimer (Object? o)
+        {
+            DoLog();
+        }
         private void DoLog()
         {
-            lock (this)
+            string text;
+            lock (m_Lock)
             {
-                if (CannotLog)
-                {
-                    PostponeLog();
-                    return;
-                }
-                string text = m_Buffer;
-                m_Buffer = "";
-                if (text.Length < 1)
+                if (CannotLog || m_Buffer.Length < 1)
                 {
                     return;
                 }
+                text = m_Buffer.ToString();
+                m_Buffer.Clear();
+            }
+            // Serialize writes so re-entrant timer callbacks can't corrupt the StreamWriter.
+            lock (m_WriteLock)
+            {
                 try
                 {
-                    System.IO.File.AppendAllText(LogFilePath, text);
+                    EnsureWriter();
+                    m_Writer!.Write(text);
+                    m_Writer.Flush();
                 }
                 catch (IOException)
                 {
-                    m_Buffer = text + m_Buffer;
-                    PostponeLog();
+                    // Transient lock (e.g. AV scan). Put the text back; the next tick retries.
+                    lock (m_Lock)
+                    {
+                        m_Buffer.Insert(0, text);
+                    }
                 }
                 catch
                 {
 
                 }
             }
-            //
-        }        
-        private void PostponeLog ()
-        {
-            new System.Threading.Timer(OnTimer, null, 0, 1000);
         }
-        private void OnTimer (Object? o)
+        // Keeps a single file handle open and reopens only when the date-stamped
+        // path rolls over, instead of opening/closing the file on every line.
+        private void EnsureWriter()
         {
-            DoLog();
+            string path = LogFilePath;
+            if (m_Writer != null && path == m_OpenPath)
+            {
+                return;
+            }
+            m_Writer?.Dispose();
+            m_Writer = new StreamWriter(path, append: true) { AutoFlush = false };
+            m_OpenPath = path;
         }
         #endregion
     }
@@ -110,13 +164,24 @@ namespace AllexCloudRunnerControls
         delegate Boolean ConsoleCtrlDelegate(uint CtrlType);
         #endregion
 
+        #region Constants
+        // Cap the on-screen log so the WinForms TextBox can never grow without bound.
+        // An ever-growing multiline TextBox is what turned high message volume into
+        // O(n^2) UI work and pegged the CPU; we keep only a rolling tail.
+        private const int MaxLogBoxChars = 200_000;
+        // How often the UI thread drains the display buffer.
+        private const int UiFlushIntervalMs = 200;
+        #endregion
+
         #region Fields
         private bool? m_LocalNode=null;
         private string? m_PathToAllexSystem=null;
         private string m_JSFileName="";
         private FileLogger m_FileLogger = new FileLogger();
         private Process? m_Process=null;
-        private string m_Buffer = "";
+        private readonly StringBuilder m_UiBuffer = new StringBuilder();
+        private readonly object m_UiLock = new object();
+        private System.Windows.Forms.Timer? m_UiTimer;
         private bool m_ProcessClosed = true;
         private Thread? m_StoppingThread;
         private bool m_TimeToStop = false;
@@ -128,6 +193,17 @@ namespace AllexCloudRunnerControls
         public ProcessRunner()
         {
             InitializeComponent();
+            // Drain the display buffer to the TextBox on a coalescing UI timer instead of
+            // marshalling (and repainting) once per received line. The reader thread no
+            // longer waits on the UI thread, so it can keep node's stdout pipe drained.
+            m_UiTimer = new System.Windows.Forms.Timer { Interval = UiFlushIntervalMs };
+            m_UiTimer.Tick += (s, e) => FlushUi();
+            m_UiTimer.Start();
+            Disposed += (s, e) =>
+            {
+                m_UiTimer?.Dispose();
+                m_FileLogger.Dispose();
+            };
         }
         #endregion
 
@@ -278,6 +354,10 @@ namespace AllexCloudRunnerControls
         {
             setText(e.Data);
         }
+        // Runs on the process stdout/stderr reader thread, once per received line.
+        // Keep it cheap and non-blocking: hand the text to the (async) file logger and
+        // append it to the display buffer. No file I/O and no synchronous UI marshalling
+        // happen here, so the reader thread always keeps draining node's stdout pipe.
         private void setText(string? text)
         {
             if (text==null)
@@ -295,44 +375,48 @@ namespace AllexCloudRunnerControls
                 return;
             }
             */
-            lock (this)
+            text += "\r\n";
+            m_FileLogger.Log(text);
+            lock (m_UiLock)
             {
-                text += "\r\n";
-                m_FileLogger.Log(text);
-                bool bufferWasEmpty = m_Buffer.Length < 1;
-                m_Buffer += text;
-                if (logBox == null)
-                    return;
-                if (logBox.IsDisposed)
-                    return;
-                try
-                {
-                    logBox.Invoke(dumpBuffer);
-                }
-                catch { }
-                /*
-                if (logBox.InvokeRequired)
-                {
-                    if (bufferWasEmpty)
-                    {
-                        try
-                        {
-                            logBox.Invoke(dumpBuffer);
-                        }
-                        catch { }
-                    }
-                }
-                else
-                {
-                    dumpBuffer();
-                }
-                */
+                m_UiBuffer.Append(text);
             }
         }
-        private void dumpBuffer()
+        // Runs on the UI thread from the flush timer. Drains whatever accumulated since the
+        // last tick in one AppendText, and enforces the rolling size cap on the TextBox.
+        private void FlushUi()
         {
-            string b = m_Buffer;
-            m_Buffer = "";
+            if (logBox == null || logBox.IsDisposed)
+            {
+                return;
+            }
+            string b;
+            lock (m_UiLock)
+            {
+                if (m_UiBuffer.Length < 1)
+                {
+                    return;
+                }
+                b = m_UiBuffer.ToString();
+                m_UiBuffer.Clear();
+            }
+            if (b.Length >= MaxLogBoxChars)
+            {
+                // This batch alone overflows the cap: keep only its tail.
+                logBox.Clear();
+                logBox.AppendText(b.Substring(b.Length - MaxLogBoxChars));
+                return;
+            }
+            if (logBox.TextLength + b.Length > MaxLogBoxChars)
+            {
+                // Trim the oldest text so existing + new fits inside the cap.
+                int keep = MaxLogBoxChars - b.Length;
+                string existing = logBox.Text;
+                if (keep < existing.Length)
+                {
+                    logBox.Text = existing.Substring(existing.Length - keep);
+                }
+            }
             logBox.AppendText(b);
         }
         #endregion
