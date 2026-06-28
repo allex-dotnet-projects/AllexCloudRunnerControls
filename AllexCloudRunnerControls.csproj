@@ -8,7 +8,16 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
-    <VersionPrefix>1.0.1</VersionPrefix>
+    <!-- Build version bumped to 1.0.2 so the overload/OOM hotfix is distinguishable from the
+         faulty 1.0.1 build (visible as File version / Product version).
+         AssemblyVersion is intentionally PINNED to 1.0.1.0: that is the assembly's binding
+         identity, and EpicFIX.deps.json requires AllexCloudRunnerControls 1.0.1, so keeping it
+         unchanged means the fixed DLL stays a guaranteed single-file drop-in replacement. -->
+    <VersionPrefix>1.0.2</VersionPrefix>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <!-- FileVersion must be set explicitly: it otherwise inherits the pinned AssemblyVersion. -->
+    <FileVersion>1.0.2.0</FileVersion>
+    <InformationalVersion>1.0.2-overload-oom-hotfix</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
