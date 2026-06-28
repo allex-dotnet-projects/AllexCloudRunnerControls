@@ -13,6 +13,11 @@ namespace AllexCloudRunnerControls
         #region Constants
         // How often the background thread drains the in-memory buffer to disk.
         private const int FlushIntervalMs = 250;
+        // Hard cap on the in-memory pending-write buffer. The disk drain is far faster than
+        // node can emit, so this is only reached if the disk stalls (AV scan, full disk) under
+        // a flood. Bounding it turns "leak until OutOfMemoryException" into "drop oldest lines",
+        // which is what the date-stamped log file is for anyway.
+        private const int MaxBufferChars = 8_000_000; // ~16 MB UTF-16
         #endregion
 
         #region Fields
@@ -78,6 +83,17 @@ namespace AllexCloudRunnerControls
             lock (m_Lock)
             {
                 m_Buffer.Append(text);
+                TrimBufferLocked();
+            }
+        }
+
+        // Caller must hold m_Lock. Drops the oldest text if the buffer exceeds the cap, so a
+        // stalled disk under a message flood can never grow this without bound.
+        private void TrimBufferLocked()
+        {
+            if (m_Buffer.Length > MaxBufferChars)
+            {
+                m_Buffer.Remove(0, m_Buffer.Length - MaxBufferChars);
             }
         }
 
@@ -122,9 +138,12 @@ namespace AllexCloudRunnerControls
                 catch (IOException)
                 {
                     // Transient lock (e.g. AV scan). Put the text back; the next tick retries.
+                    // Re-prepend, then re-apply the cap so repeated failures under a flood drop
+                    // the oldest lines instead of growing the buffer until OutOfMemoryException.
                     lock (m_Lock)
                     {
                         m_Buffer.Insert(0, text);
+                        TrimBufferLocked();
                     }
                 }
                 catch
@@ -169,6 +188,12 @@ namespace AllexCloudRunnerControls
         // An ever-growing multiline TextBox is what turned high message volume into
         // O(n^2) UI work and pegged the CPU; we keep only a rolling tail.
         private const int MaxLogBoxChars = 200_000;
+        // Cap the producer-side display buffer too. The UI flush timer only fires when the UI
+        // message pump runs; if the UI thread is starved under a message flood (e.g. WebView2
+        // contention) the timer stalls and an UNBOUNDED m_UiBuffer leaks until the next append
+        // throws OutOfMemoryException on the UI/reader thread. Bounding it (only the tail is ever
+        // shown anyway) is what keeps the shell alive under sustained overload.
+        private const int MaxUiBufferChars = 4 * MaxLogBoxChars; // 800k chars
         // How often the UI thread drains the display buffer.
         private const int UiFlushIntervalMs = 200;
         #endregion
@@ -380,6 +405,12 @@ namespace AllexCloudRunnerControls
             lock (m_UiLock)
             {
                 m_UiBuffer.Append(text);
+                // Bound the display buffer regardless of whether the UI flush timer is keeping
+                // up. Without this, a stalled UI pump under a flood grows m_UiBuffer until OOM.
+                if (m_UiBuffer.Length > MaxUiBufferChars)
+                {
+                    m_UiBuffer.Remove(0, m_UiBuffer.Length - MaxUiBufferChars);
+                }
             }
         }
         // Runs on the UI thread from the flush timer. Drains whatever accumulated since the
